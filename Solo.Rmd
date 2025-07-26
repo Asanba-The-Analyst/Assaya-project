@@ -1,0 +1,936 @@
+---
+title: "Analysis of Mental Health Service Utilization and Suicidal Ideation"
+author: "Your Name"
+date: "July 26, 2025"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: hide
+---
+
+# 1. Introduction & Setup
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+# Load Required Packages
+library(tidyverse)
+library(haven)
+library(labelled)
+library(mice) # For potential imputation, though na.omit is used for this example
+library(tableone) # For quick checks (can be removed if only gtsummary is desired)
+library(ggplot2)
+library(broom)
+library(gtsummary) # For nice summary tables
+library(flextable) # For better rendering of gtsummary in some outputs (e.g.,
+```
+
+
+
+```{r}
+data <- read_dta("Data/JULY232025.dta")
+data_processed <- data %>%
+  # Renaming variables for clarity - ENSURE THESE MATCH YOUR ACTUAL COLUMN NAMES IN 'data'
+  rename(
+    Pop_Centre_Rural = geodvpsz,
+    Marital_Status = dhhgms,
+    Gender = gender,
+    Age_Group = dhhgage,
+    Immigration_Status = sdcfimm,
+    Years_in_Canada = sdcgres,
+    Education = edu_05,
+    Perceived_MH_Compared_Prev_Year = gen_08c,
+
+    # Professional Service Use (Adjust these to match your actual variable names if different)
+    Nurse_Video_Talk = sr1_40ac,
+    SocialWorker_Counsellor_12m = sr1_004e,
+    No_Ment_Hlth_Consult_12m = sr1_004j, # To be inverted for 'Consulted_Ment_Hlth_12m'
+    Psychologist_Phone = sr1_30ab,
+    Psychologist_Video = sr1_30ac,
+    Psychologist_Text = sr1_30ad,
+    Nurse_InPerson = sr1_40aa,
+    Nurse_Phone = sr1_40ab,
+    Psychiatrist_Video = sr1_10ac,
+    Psychiatrist_Phone = sr1_10ab,
+    Psychiatrist_Text = sr1_10ad,
+    Psychiatrist_InPerson = sr1_10aa,
+    FamilyDoc_Text = sr1_20ad,
+    FamilyDoc_Video = sr1_20ac,
+    FamilyDoc_Phone = sr1_20ab,
+    FamilyDoc_InPerson = sr1_20aa,
+    SocialWorker_Text = sr1_50ad,
+    SocialWorker_Phone = sr1_50ab,
+    SocialWorker_Video = sr1_50ac,
+    SocialWorker_InPerson = sr1_50aa,
+    Consulted_Nurse_12m = sr1_004d,
+    Consulted_FamilyDoc_GP_12m = sr1_004b,
+    Consulted_Other_12m = sr1_004i,
+    Consulted_Psychiatrist_12m = sr1_004a,
+    Consulted_Psychologist_12m = sr1_004c,
+    Professional_Services_Used_12m_Flag = sr1fpru,
+
+    # Informal Support/Services (Adjust these to match your actual variable names if different)
+    Internet_Discuss_People = sr1_112c,
+    Internet_Other = sr1_112e,
+    Consulted_CoWorker_Boss_12m = sr1_004h,
+    Internet_Learn_Symptoms = sr1_112a,
+    SelfHelp_Group_12m = sr1_113,
+    Telephone_Helpline_12m = sr1_116,
+    Family_Video = sr1_60ac,
+    Internet_Info_Help_Support_12m = sr1_111,
+    Friend_Text = sr1_70ad,
+    Internet_Online_Therapy = sr1_112d,
+    OtherPeople_Video = sr1100ac,
+    Family_Phone = sr1_60ab,
+    OtherPeople_Phone = sr1100ab,
+    Consulted_Family_12m = sr1_004f,
+    Consulted_Friend_12m = sr1_004g,
+    OtherPeople_InPerson = sr1100aa,
+    CoWorker_Supervisor_Phone = sr1_80ab,
+    OtherPeople_Text = sr1100ad,
+    CoWorker_Supervisor_Video = sr1_80ac,
+    CoWorker_Supervisor_Text = sr1_80ad,
+    Family_InPerson = sr1_60aa,
+    Internet_Find_Help = sr1_112b,
+    SelfHelp_Alcohol_Drug = sr1_114b,
+    SelfHelp_Other = sr1_114c,
+    Friend_InPerson = sr1_70aa,
+    CoWorker_Supervisor_InPerson = sr1_80aa,
+    Friend_Phone = sr1_70ab,
+    Friend_Video = sr1_70ac,
+    NonProfessional_Services_Used_12m_Flag = sr1fnpu,
+    Perceived_Help_Family = sr1_062,
+
+    # Barriers (Adjust these to match your actual variable names if different)
+    SW_Not_Helping = sr1_054c, Psychologist_Embarrassed = sr1_034f, SW_Embarrassed = sr1_054f,
+    Psychiatrist_Other_Reason = sr1_014l, Dr_Problem_Better_NoHelp = sr1_024d,
+    Psychologist_Transport_Childcare = sr1_034h, Psychiatrist_Not_Helping = sr1_014c,
+    Psychologist_Discrimination = sr1_034k, SW_Service_Not_Available = sr1_054i,
+    Dr_Not_Comfortable_Approach = sr1_024j, Dr_Discrimination = sr1_024k,
+    Psychologist_Solve_Problem_NoHelp = sr1_034g, SW_Felt_Better = sr1_054a,
+    Psychologist_Felt_Better = sr1_034a, Psychiatrist_Service_Not_Available = sr1_014i,
+    Nurse_Other_Reason = sr1_044l, SW_Transport_Childcare = sr1_054h,
+    Dr_Other_Reason = sr1_024l, Dr_Transport_Childcare = sr1_024h,
+    SW_Not_Comfortable_Approach = sr1_054j, SW_Problem_Better_NoHelp = sr1_054d,
+    Nurse_Transport_Childcare = sr1_044h, Dr_Service_Not_Available = sr1_024i,
+    SW_Solve_Problem_NoHelp = sr1_054g, Nurse_Solve_Problem_NoHelp = sr1_044g,
+    Nurse_Completed_Treatment = sr1_044b, Psychiatrist_Cant_Afford = sr1_014e,
+    Psychiatrist_Transport_Childcare = sr1_014h, SW_Discrimination = sr1_054k,
+    Stopped_Psychologist = sr1_033, Psychologist_Cant_Afford = sr1_034e,
+    Nurse_Not_Comfortable_Approach = sr1_044j, Psychologist_Not_Comfortable_Approach = sr1_034j,
+    Psychiatrist_Completed_Treatment = sr1_014b, Dr_Cant_Afford = sr1_024e,
+    Dr_Embarrassed = sr1_024f, Stopped_Psychiatrist = sr1_013,
+    Psychologist_Service_Not_Available = sr1_034i, Nurse_Problem_Better_NoHelp = sr1_044d,
+    Psychiatrist_Felt_Better = sr1_014a, Nurse_Not_Helping = sr1_044c,
+    Dr_Completed_Treatment = sr1_024b, Dr_Solve_Problem_NoHelp = sr1_024g,
+    Psychiatrist_Solve_Problem_NoHelp = sr1_014g, SW_Other_Reason = sr1_054l,
+    Psychiatrist_Not_Comfortable_Approach = sr1_014j, Nurse_Embarrassed = sr1_044f,
+    Stopped_Nurse = sr1_043, Psychiatrist_Problem_Better_NoHelp = sr1_014d,
+    Nurse_Cant_Afford = sr1_044e, Nurse_Felt_Better = sr1_044a,
+    Psychologist_Problem_Better = sr1_034d, Stopped_FamilyDoc = sr1_023,
+    SW_Cant_Afford = sr1_054e, Psychologist_Other_Reason = sr1_034l,
+    SW_Completed_Treatment = sr1_054b, Dr_Felt_Better = sr1_024a,
+    Nurse_Service_Not_Available = sr1_044i, Psychologist_Completed_Treatment = sr1_034b,
+    Psychologist_Not_Helping = sr1_034c, Nurse_Discrimination = sr1_044k,
+    Dr_Not_Helping = sr1_024c,
+
+    # Suicidal Ideation / Depression (Adjust these to match your actual variable names if different)
+    Perceived_Life_Stress = gen_07,
+    Perceived_Work_Stress = gen_09,
+    Perceived_Health = gendhdi,
+    Self_Perceived_MH = gen_08b,
+    Depression_Interference_12m = depdint,
+    Suicide_Thought_12m_Flag = depfsyt,
+    Depression_Hospitalized_Life = dep_87,
+    Depression_Consulted_Prof_Life = dep_72,
+    Suicide_Ideation_12m = sui_03,
+    Suicide_Ideation_WorstEpisode = sui_01,
+    Suicide_Ideation_Life = sui_02
+  ) %>%
+  # Convert to factors where appropriate, explicitly setting levels for order
+  mutate(
+    Pop_Centre_Rural = as.factor(Pop_Centre_Rural),
+    Marital_Status = as.factor(Marital_Status),
+    Gender = as.factor(Gender),
+    Age_Group = factor(Age_Group, levels = c("18-29", "30-49", "50-64", "65+")),
+    Immigration_Status = as.factor(Immigration_Status), # Ensure levels are correct for your data
+    Years_in_Canada = factor(Years_in_Canada, levels = c("0-5 years", "6-10 years", "11+ years")), # Ensure levels are correct
+    Education = factor(Education, levels = c("High School", "College", "University")), # Ensure levels are correct
+    Perceived_MH_Compared_Prev_Year = factor(Perceived_MH_Compared_Prev_Year, ordered = TRUE), # Assuming 1-5 scale, adjust levels if needed
+    Perceived_Life_Stress = factor(Perceived_Life_Stress, ordered = TRUE), # Adjust levels if needed
+    Perceived_Work_Stress = factor(Perceived_Work_Stress, ordered = TRUE), # Adjust levels if needed
+    Perceived_Health = factor(Perceived_Health, ordered = TRUE), # Adjust levels if needed
+    Self_Perceived_MH = factor(Self_Perceived_MH, ordered = TRUE), # Adjust levels if needed
+    Perceived_Help_Family = factor(Perceived_Help_Family, ordered = TRUE) # Adjust levels if needed
+  )
+```
+
+
+
+# Define a list of all binary variables that need conversion from 0/1/NA to No/Yes factors
+
+```{r, results='asis'}
+binary_service_vars <- c(
+  "Nurse_Video_Talk", "SocialWorker_Counsellor_12m", "Psychologist_Phone",
+  "Psychologist_Video", "Psychologist_Text", "Nurse_InPerson", "Nurse_Phone",
+  "Psychiatrist_Video", "Psychiatrist_Phone", "Psychiatrist_Text",
+  "Psychiatrist_InPerson", "FamilyDoc_Text", "FamilyDoc_Video",
+  "FamilyDoc_Phone", "FamilyDoc_InPerson", "SocialWorker_Text",
+  "SocialWorker_Phone", "SocialWorker_Video", "SocialWorker_InPerson",
+  "Consulted_Nurse_12m", "Consulted_FamilyDoc_GP_12m", "Consulted_Other_12m",
+  "Consulted_Psychiatrist_12m", "Consulted_Psychologist_12m",
+  "Professional_Services_Used_12m_Flag",
+  "Internet_Discuss_People", "Internet_Other", "Consulted_CoWorker_Boss_12m",
+  "Internet_Learn_Symptoms", "SelfHelp_Group_12m", "Telephone_Helpline_12m",
+  "Family_Video", "Internet_Info_Help_Support_12m", "Friend_Text",
+  "Internet_Online_Therapy", "OtherPeople_Video", "Family_Phone",
+  "OtherPeople_Phone", "Consulted_Family_12m", "Consulted_Friend_12m",
+  "OtherPeople_InPerson", "CoWorker_Supervisor_Phone", "OtherPeople_Text",
+  "CoWorker_Supervisor_Video", "CoWorker_Supervisor_Text", "Family_InPerson",
+  "Internet_Find_Help", "SelfHelp_Alcohol_Drug", "SelfHelp_Other",
+  "Friend_InPerson", "CoWorker_Supervisor_InPerson", "Friend_Phone",
+  "Friend_Video", "NonProfessional_Services_Used_12m_Flag",
+  # Barriers (assuming these are also 0/1 indicators)
+  "SW_Not_Helping", "Psychologist_Embarrassed", "SW_Embarrassed",
+  "Psychiatrist_Other_Reason", "Dr_Problem_Better_NoHelp",
+  "Psychologist_Transport_Childcare", "Psychiatrist_Not_Helping",
+  "Psychologist_Discrimination", "SW_Service_Not_Available",
+  "Dr_Not_Comfortable_Approach", "Dr_Discrimination",
+  "Psychologist_Solve_Problem_NoHelp", "SW_Felt_Better",
+  "Psychologist_Felt_Better", "Psychiatrist_Service_Not_Available",
+  "Nurse_Other_Reason", "SW_Transport_Childcare", "Dr_Other_Reason",
+    "Dr_Transport_Childcare", "SW_Not_Comfortable_Approach",
+  "SW_Problem_Better_NoHelp", "Nurse_Transport_Childcare",
+  "Dr_Service_Not_Available", "SW_Solve_Problem_NoHelp",
+  "Nurse_Solve_Problem_NoHelp", "Nurse_Completed_Treatment",
+  "Psychiatrist_Cant_Afford", "Psychiatrist_Transport_Childcare",
+  "SW_Discrimination", "Stopped_Psychologist", "Psychologist_Cant_Afford",
+  "Nurse_Not_Comfortable_Approach", "Psychologist_Not_Comfortable_Approach",
+  "Psychiatrist_Completed_Treatment", "Dr_Cant_Afford", "Dr_Embarrassed",
+  "Stopped_Psychiatrist", "Psychologist_Service_Not_Available",
+  "Nurse_Problem_Better_NoHelp", "Psychiatrist_Felt_Better",
+  "Nurse_Not_Helping", "Dr_Completed_Treatment", "Dr_Solve_Problem_NoHelp",
+  "Psychiatrist_Solve_Problem_NoHelp", "SW_Other_Reason",
+  "Psychiatrist_Not_Comfortable_Approach", "Nurse_Embarrassed",
+  "Stopped_Nurse", "Psychiatrist_Problem_Better_NoHelp",
+  "Nurse_Cant_Afford", "Nurse_Felt_Better", "Psychologist_Problem_Better",
+  "Stopped_FamilyDoc", "SW_Cant_Afford", "Psychologist_Other_Reason",
+  "SW_Completed_Treatment", "Dr_Felt_Better", "Nurse_Service_Not_Available",
+  "Psychologist_Completed_Treatment", "Psychologist_Not_Helping",
+  "Nurse_Discrimination", "Dr_Not_Helping",
+  # Suicidal Ideation / Depression flags (assuming these are also 0/1 indicators)
+  "Suicide_Thought_12m_Flag", "Depression_Hospitalized_Life",
+  "Depression_Consulted_Prof_Life", "Suicide_Ideation_12m",
+  "Suicide_Ideation_WorstEpisode", "Suicide_Ideation_Life"
+)
+
+```
+
+
+
+```{r results='asis'}
+# Convert 0/1/NA to 0/1 and then to "No"/"Yes" factors for selected binary variables
+for (var_name in binary_service_vars) {
+  if (var_name %in% colnames(data_processed)) {
+    data_processed <- data_processed %>%
+      mutate(!!sym(var_name) := case_when(
+        !!sym(var_name) == 1 ~ 1,
+        !!sym(var_name) == 0 ~ 0,
+        is.na(!!sym(var_name)) ~ 0 # Critical: Treat NA as 'No' for service non-use/non-barrier
+      )) %>%
+      mutate(!!sym(var_name) := factor(!!sym(var_name), levels = c(0, 1), labels = c("No", "Yes")))
+  } else {
+    message(paste("Warning: Variable '", var_name, "' not found for cleaning. Skipping.", sep=""))
+  }
+}
+
+```
+
+
+# Invert 'No_Ment_Hlth_Consult_12m' to represent 'Consulted_Ment_Hlth_12m'
+```{r results='asis'}
+# Assuming original sr1_004j was coded 1 for 'yes, none' and 0 for 'no, some'
+if ("No_Ment_Hlth_Consult_12m" %in% colnames(data_processed)) {
+  data_processed <- data_processed %>%
+    mutate(Consulted_Ment_Hlth_12m = factor(case_when(
+      No_Ment_Hlth_Consult_12m == "Yes" ~ "No",  # If 'none' was chosen, then no consultation happened
+      No_Ment_Hlth_Consult_12m == "No" ~ "Yes", # If 'none' was NOT chosen, then some consultation happened
+      TRUE ~ NA_character_ # Fallback, though previous NA handling should cover
+    ), levels = c("No", "Yes"))) %>%
+    select(-No_Ment_Hlth_Consult_12m) # Remove the original variable
+} else {
+  message("Warning: 'No_Ment_Hlth_Consult_12m' not found for inversion. Skipping.")
+}
+```
+
+
+# Derive overall Professional and Informal Service Use flags
+# These flags aggregate specific service variables.
+# Using `pmax(as.numeric(...) == "Yes", ..., na.rm = TRUE)` to get 1 if any are #"Yes", 0 otherwise.
+
+
+```{r results='asis'}
+data_processed <- data_processed %>%
+  mutate(
+    Professional_Service_Any = factor(
+      pmax(as.numeric(Nurse_Video_Talk == "Yes"),
+           as.numeric(SocialWorker_Counsellor_12m == "Yes"),
+           as.numeric(Psychologist_Phone == "Yes"),
+           as.numeric(Psychologist_Video == "Yes"),
+           as.numeric(Psychologist_Text == "Yes"),
+           as.numeric(Nurse_InPerson == "Yes"),
+           as.numeric(Nurse_Phone == "Yes"),
+           as.numeric(Psychiatrist_Video == "Yes"),
+           as.numeric(Psychiatrist_Phone == "Yes"),
+           as.numeric(Psychiatrist_Text == "Yes"),
+           as.numeric(Psychiatrist_InPerson == "Yes"),
+           as.numeric(FamilyDoc_Text == "Yes"),
+           as.numeric(FamilyDoc_Video == "Yes"),
+           as.numeric(FamilyDoc_Phone == "Yes"),
+           as.numeric(FamilyDoc_InPerson == "Yes"),
+           as.numeric(SocialWorker_Text == "Yes"),
+           as.numeric(SocialWorker_Phone == "Yes"),
+           as.numeric(SocialWorker_Video == "Yes"),
+           as.numeric(SocialWorker_InPerson == "Yes"),
+           as.numeric(Consulted_Nurse_12m == "Yes"),
+           as.numeric(Consulted_FamilyDoc_GP_12m == "Yes"),
+           as.numeric(Consulted_Other_12m == "Yes"),
+           as.numeric(Consulted_Psychiatrist_12m == "Yes"),
+           as.numeric(Consulted_Psychologist_12m == "Yes"),
+           # Add the overall flag if it's reliable and present
+           if("Professional_Services_Used_12m_Flag" %in% names(.)) as.numeric(Professional_Services_Used_12m_Flag == "Yes") else 0,
+           na.rm = TRUE),
+      levels = c(0, 1), labels = c("No", "Yes")),
+
+    Informal_Support_Any = factor(
+      pmax(as.numeric(Internet_Discuss_People == "Yes"),
+           as.numeric(Internet_Other == "Yes"),
+           as.numeric(Consulted_CoWorker_Boss_12m == "Yes"),
+           as.numeric(Internet_Learn_Symptoms == "Yes"),
+           as.numeric(SelfHelp_Group_12m == "Yes"),
+           as.numeric(Telephone_Helpline_12m == "Yes"),
+           as.numeric(Family_Video == "Yes"),
+           as.numeric(Internet_Info_Help_Support_12m == "Yes"),
+           as.numeric(Friend_Text == "Yes"),
+           as.numeric(Internet_Online_Therapy == "Yes"),
+           as.numeric(OtherPeople_Video == "Yes"),
+           as.numeric(Family_Phone == "Yes"),
+           as.numeric(OtherPeople_Phone == "Yes"),
+           as.numeric(Consulted_Family_12m == "Yes"),
+           as.numeric(Consulted_Friend_12m == "Yes"),
+           as.numeric(OtherPeople_InPerson == "Yes"),
+           as.numeric(CoWorker_Supervisor_Phone == "Yes"),
+           as.numeric(OtherPeople_Text == "Yes"),
+           as.numeric(CoWorker_Supervisor_Video == "Yes"),
+           as.numeric(CoWorker_Supervisor_Text == "Yes"),
+           as.numeric(Family_InPerson == "Yes"),
+           as.numeric(Internet_Find_Help == "Yes"),
+           as.numeric(SelfHelp_Alcohol_Drug == "Yes"),
+           as.numeric(SelfHelp_Other == "Yes"),
+           as.numeric(Friend_InPerson == "Yes"),
+           as.numeric(CoWorker_Supervisor_InPerson == "Yes"),
+           as.numeric(Friend_Phone == "Yes"),
+           as.numeric(Friend_Video == "Yes"),
+           # Add the overall flag if it's reliable and present
+           if("NonProfessional_Services_Used_12m_Flag" %in% names(.)) as.numeric(NonProfessional_Services_Used_12m_Flag == "Yes") else 0,
+           na.rm = TRUE),
+      levels = c(0, 1), labels = c("No", "Yes"))
+  )
+
+```
+
+
+
+# --- 4. Derived Service Modality Variables ---
+# Creating composite variables for different communication modalities across all relevant services
+```{r}
+
+data_processed <- data_processed %>%
+  mutate(
+    Any_Text_SMS_Service_Use = factor(
+      pmax(
+        if("Psychologist_Text" %in% names(.)) as.numeric(Psychologist_Text == "Yes") else 0,
+        if("Psychiatrist_Text" %in% names(.)) as.numeric(Psychiatrist_Text == "Yes") else 0,
+        if("FamilyDoc_Text" %in% names(.)) as.numeric(FamilyDoc_Text == "Yes") else 0,
+        if("SocialWorker_Text" %in% names(.)) as.numeric(SocialWorker_Text == "Yes") else 0,
+        if("Friend_Text" %in% names(.)) as.numeric(Friend_Text == "Yes") else 0,
+        if("OtherPeople_Text" %in% names(.)) as.numeric(OtherPeople_Text == "Yes") else 0,
+        if("CoWorker_Supervisor_Text" %in% names(.)) as.numeric(CoWorker_Supervisor_Text == "Yes") else 0,
+        na.rm = TRUE
+      ), levels = c(0, 1), labels = c("No", "Yes")
+    ),
+    Any_Phone_Service_Use = factor(
+      pmax(
+        if("Psychologist_Phone" %in% names(.)) as.numeric(Psychologist_Phone == "Yes") else 0,
+        if("Psychiatrist_Phone" %in% names(.)) as.numeric(Psychiatrist_Phone == "Yes") else 0,
+        if("FamilyDoc_Phone" %in% names(.)) as.numeric(FamilyDoc_Phone == "Yes") else 0,
+        if("SocialWorker_Phone" %in% names(.)) as.numeric(SocialWorker_Phone == "Yes") else 0,
+        if("Nurse_Phone" %in% names(.)) as.numeric(Nurse_Phone == "Yes") else 0,
+        if("Family_Phone" %in% names(.)) as.numeric(Family_Phone == "Yes") else 0,
+        if("OtherPeople_Phone" %in% names(.)) as.numeric(OtherPeople_Phone == "Yes") else 0,
+        if("CoWorker_Supervisor_Phone" %in% names(.)) as.numeric(CoWorker_Supervisor_Phone == "Yes") else 0,
+        if("Friend_Phone" %in% names(.)) as.numeric(Friend_Phone == "Yes") else 0,
+        if("Telephone_Helpline_12m" %in% names(.)) as.numeric(Telephone_Helpline_12m == "Yes") else 0,
+        na.rm = TRUE
+      ), levels = c(0, 1), labels = c("No", "Yes")
+    ),
+    Any_Video_Service_Use = factor(
+      pmax(
+        if("Nurse_Video_Talk" %in% names(.)) as.numeric(Nurse_Video_Talk == "Yes") else 0,
+        if("Psychologist_Video" %in% names(.)) as.numeric(Psychologist_Video == "Yes") else 0,
+        if("Psychiatrist_Video" %in% names(.)) as.numeric(Psychiatrist_Video == "Yes") else 0,
+        if("FamilyDoc_Video" %in% names(.)) as.numeric(FamilyDoc_Video == "Yes") else 0,
+        if("SocialWorker_Video" %in% names(.)) as.numeric(SocialWorker_Video == "Yes") else 0,
+        if("Family_Video" %in% names(.)) as.numeric(Family_Video == "Yes") else 0,
+        if("OtherPeople_Video" %in% names(.)) as.numeric(OtherPeople_Video == "Yes") else 0,
+        if("CoWorker_Supervisor_Video" %in% names(.)) as.numeric(CoWorker_Supervisor_Video == "Yes") else 0,
+        if("Friend_Video" %in% names(.)) as.numeric(Friend_Video == "Yes") else 0,
+        na.rm = TRUE
+      ), levels = c(0, 1), labels = c("No", "Yes")
+    ),
+    Any_InPerson_Service_Use = factor(
+      pmax(
+        if("Nurse_InPerson" %in% names(.)) as.numeric(Nurse_InPerson == "Yes") else 0,
+        if("Psychiatrist_InPerson" %in% names(.)) as.numeric(Psychiatrist_InPerson == "Yes") else 0,
+        if("FamilyDoc_InPerson" %in% names(.)) as.numeric(FamilyDoc_InPerson == "Yes") else 0,
+        if("SocialWorker_InPerson" %in% names(.)) as.numeric(SocialWorker_InPerson == "Yes") else 0,
+        if("Family_InPerson" %in% names(.)) as.numeric(Family_InPerson == "Yes") else 0,
+        if("OtherPeople_InPerson" %in% names(.)) as.numeric(OtherPeople_InPerson == "Yes") else 0,
+        if("CoWorker_Supervisor_InPerson" %in% names(.)) as.numeric(CoWorker_Supervisor_InPerson == "Yes") else 0,
+        if("Friend_InPerson" %in% names(.)) as.numeric(Friend_InPerson == "Yes") else 0,
+        na.rm = TRUE
+      ), levels = c(0, 1), labels = c("No", "Yes")
+    )
+  )
+```
+
+
+# --- Final Data Preparation: Handling remaining NAs ---
+# For a quick analysis, na.omit removes all rows with any remaining NA.
+# For more rigorous analysis, consider using the 'mice' package for multiple imputation.
+```{r}
+data_clean <- na.omit(data_processed)
+cat("\nDimensions after cleaning and removing remaining NAs:", dim(data_clean), "\n")
+
+```
+
+
+# --- 5. Descriptive Analysis ---
+
+# 5.1. Demographic Characteristics
+```{r}
+cat("\n### Demographic Characteristics\n")
+demographic_vars <- c("Pop_Centre_Rural", "Marital_Status", "Gender", "Age_Group",
+                      "Immigration_Status", "Years_in_Canada", "Education")
+
+tbl_demographics <- data_clean %>%
+  select(all_of(demographic_vars)) %>%
+  tbl_summary(
+    label = list(
+      Pop_Centre_Rural ~ "Population Centre / Rural",
+      Marital_Status ~ "Marital Status",
+      Gender ~ "Gender",
+      Age_Group ~ "Age Group",
+      Immigration_Status ~ "Immigration Status",
+      Years_in_Canada ~ "Years in Canada",
+      Education ~ "Highest Education"
+    ),
+    missing = "no"
+  ) %>%
+  add_overall() %>%
+  modify_caption("**Table 1: Demographic Characteristics of the Sample**")
+tbl_demographics
+```
+
+# Expert Analysis: This table provides the foundational understanding of our sample's composition.
+# Pay close attention to the distribution of gender, age, and immigration status, as these are often
+# key demographic factors influencing health and service use.
+
+
+# 5.2. Perceived Health and Stress
+```{r}
+cat("\n### Perceived Health and Stress\n")
+health_stress_vars <- c("Perceived_Life_Stress", "Perceived_Work_Stress",
+                        "Perceived_Health", "Self_Perceived_MH", "Perceived_Help_Family")
+
+tbl_health_stress <- data_clean %>%
+  select(all_of(health_stress_vars)) %>%
+  tbl_summary(
+    label = list(
+      Perceived_Life_Stress ~ "Perceived Life Stress",
+      Perceived_Work_Stress ~ "Perceived Work Stress",
+      Perceived_Health ~ "Self-Perceived Health",
+      Self_Perceived_MH ~ "Self-Perceived Mental Health",
+      Perceived_Help_Family ~ "Perceived Help from Family"
+    ),
+    type = all_ordered() ~ "continuous", # Treat as continuous for mean/SD if appropriate, or as categorical if you prefer counts for each level
+    missing = "no"
+  ) %>%
+  add_overall() %>%
+  modify_caption("**Table 2: Perceived Health, Stress, and Family Support**")
+tbl_health_stress
+```
+
+# Expert Analysis: These ordinal variables give insight into the overall well-being and support systems
+# of the participants. High levels of perceived stress or poor self-rated health can be important indicators
+# for mental health needs.
+
+
+# 5.3. Mental Health Service Utilization Patterns
+cat("\n### Mental Health Service Utilization Patterns\n")
+
+# 5.3.1. Overall Professional and Informal Service Use
+```{r}
+cat("\n#### Overall Professional and Informal Service Use\n")
+overall_service_vars <- c("Professional_Service_Any", "Informal_Support_Any")
+
+tbl_overall_service <- data_clean %>%
+  select(all_of(overall_service_vars)) %>%
+  tbl_summary(
+    label = list(
+      Professional_Service_Any ~ "Any Professional Service Use (Past 12 Months)",
+      Informal_Support_Any ~ "Any Informal Support Use (Past 12 Months)"
+    ),
+    missing = "no"
+  ) %>%
+  add_overall() %>%
+  modify_caption("**Table 3: Overall Mental Health Service Utilization**")
+tbl_overall_service
+# Expert Analysis: This is a crucial starting point, indicating the overall reach of formal and informal
+# support. A low percentage for professional service use, for example, might suggest barriers or unmet needs.
+
+
+# 5.3.2. Detailed Professional Service Types
+cat("\n#### Detailed Professional Service Types\n")
+prof_vars_for_summary <- c("Nurse_Video_Talk", "SocialWorker_Counsellor_12m", "Psychologist_Phone",
+                           "Psychiatrist_Video", "Consulted_Nurse_12m", "Consulted_FamilyDoc_GP_12m",
+                           "Consulted_Psychiatrist_12m", "Consulted_Psychologist_12m",
+                           # Add other specific professional services if desired
+                           "Psychologist_Video", "Psychologist_Text", "Nurse_InPerson", "Nurse_Phone",
+                           "Psychiatrist_Phone", "Psychiatrist_Text", "Psychiatrist_InPerson",
+                           "FamilyDoc_Text", "FamilyDoc_Video", "FamilyDoc_Phone", "FamilyDoc_InPerson",
+                           "SocialWorker_Text", "SocialWorker_Phone", "SocialWorker_Video", "SocialWorker_InPerson")
+
+existing_prof_vars_for_summary <- prof_vars_for_summary[prof_vars_for_summary %in% colnames(data_clean)]
+
+tbl_professional_details <- data_clean %>%
+  select(all_of(existing_prof_vars_for_summary)) %>%
+  tbl_summary(
+    label = list(
+      Nurse_Video_Talk ~ "Nurse (Video/Talk)",
+      SocialWorker_Counsellor_12m ~ "Social Worker/Counsellor (12m)",
+      Psychologist_Phone ~ "Psychologist (Phone)",
+      Psychologist_Video ~ "Psychologist (Video)",
+      Psychologist_Text ~ "Psychologist (Text)",
+      Nurse_InPerson ~ "Nurse (In-Person)",
+      Nurse_Phone ~ "Nurse (Phone)",
+      Psychiatrist_Video ~ "Psychiatrist (Video)",
+      Psychiatrist_Phone ~ "Psychiatrist (Phone)",
+      Psychiatrist_Text ~ "Psychiatrist (Text)",
+      Psychiatrist_InPerson ~ "Psychiatrist (In-Person)",
+      FamilyDoc_Text ~ "Family Doc (Text)",
+      FamilyDoc_Video ~ "Family Doc (Video)",
+      FamilyDoc_Phone ~ "Family Doc (Phone)",
+      FamilyDoc_InPerson ~ "Family Doc (In-Person)",
+      SocialWorker_Text ~ "Social Worker (Text)",
+      SocialWorker_Phone ~ "Social Worker (Phone)",
+      SocialWorker_Video ~ "Social Worker (Video)",
+      SocialWorker_InPerson ~ "Social Worker (In-Person)",
+      Consulted_Nurse_12m ~ "Consulted Nurse (12m)",
+      Consulted_FamilyDoc_GP_12m ~ "Consulted Family Doc/GP (12m)",
+      Consulted_Psychiatrist_12m ~ "Consulted Psychiatrist (12m)",
+      Consulted_Psychologist_12m ~ "Consulted Psychologist (12m)",
+      Consulted_Other_12m ~ "Consulted Other Professional (12m)"
+    ),
+    missing = "no"
+  ) %>%
+  add_overall() %>%
+  modify_caption("**Table 4: Detailed Breakdown of Professional Mental Health Service Use**")
+tbl_professional_details
+```
+
+# Expert Analysis: This table highlights which types of professional services are most frequently
+# accessed. Differences in utilization rates for various professionals (e.g., psychiatrists vs. nurses)
+# can indicate service availability, public awareness, or perceived effectiveness.
+
+
+# 5.3.3. Detailed Informal Support Types
+```{r results='asis'}
+cat("\n#### Detailed Informal Support Types\n")
+informal_vars_for_summary <- c("Internet_Discuss_People", "Consulted_CoWorker_Boss_12m",
+                               "SelfHelp_Group_12m", "Telephone_Helpline_12m", "Family_Video",
+                               "Consulted_Family_12m", "Consulted_Friend_12m",
+                               # Add other specific informal services if desired
+                               "Internet_Other", "Internet_Learn_Symptoms", "Internet_Info_Help_Support_12m",
+                               "Friend_Text", "Internet_Online_Therapy", "OtherPeople_Video",
+                               "Family_Phone", "OtherPeople_Phone", "OtherPeople_InPerson",
+                               "CoWorker_Supervisor_Phone", "OtherPeople_Text", "CoWorker_Supervisor_Video",
+                               "CoWorker_Supervisor_Text", "Family_InPerson", "Internet_Find_Help",
+                               "SelfHelp_Alcohol_Drug", "SelfHelp_Other", "Friend_InPerson",
+                               "CoWorker_Supervisor_InPerson", "Friend_Phone", "Friend_Video")
+
+existing_informal_vars_for_summary <- informal_vars_for_summary[informal_vars_for_summary %in% colnames(data_clean)]
+
+tbl_informal_details <- data_clean %>%
+  select(all_of(existing_informal_vars_for_summary)) %>%
+  tbl_summary(
+    label = list(
+      Internet_Discuss_People ~ "Internet (Discuss with people)",
+      Consulted_CoWorker_Boss_12m ~ "Consulted Co-Worker/Boss (12m)",
+      SelfHelp_Group_12m ~ "Self-Help Group (12m)",
+      Telephone_Helpline_12m ~ "Telephone Helpline (12m)",
+      Family_Video ~ "Family (Video)",
+      Consulted_Family_12m ~ "Consulted Family (12m)",
+      Consulted_Friend_12m ~ "Consulted Friend (12m)",
+      Internet_Other ~ "Internet (Other)",
+      Internet_Learn_Symptoms ~ "Internet (Learn Symptoms)",
+      Internet_Info_Help_Support_12m ~ "Internet (Info/Help/Support)",
+      Friend_Text ~ "Friend (Text)",
+      Internet_Online_Therapy ~ "Internet (Online Therapy)",
+      OtherPeople_Video ~ "Other People (Video)",
+      Family_Phone ~ "Family (Phone)",
+      OtherPeople_Phone ~ "Other People (Phone)",
+      OtherPeople_InPerson ~ "Other People (In-Person)",
+      CoWorker_Supervisor_Phone ~ "Co-Worker/Supervisor (Phone)",
+      OtherPeople_Text ~ "Other People (Text)",
+      CoWorker_Supervisor_Video ~ "Co-Worker/Supervisor (Video)",
+      CoWorker_Supervisor_Text ~ "Co-Worker/Supervisor (Text)",
+      Family_InPerson ~ "Family (In-Person)",
+      Internet_Find_Help ~ "Internet (Find Help)",
+      SelfHelp_Alcohol_Drug ~ "Self-Help (Alcohol/Drug)",
+      SelfHelp_Other ~ "Self-Help (Other)",
+      Friend_InPerson ~ "Friend (In-Person)",
+      CoWorker_Supervisor_InPerson ~ "Co-Worker/Supervisor (In-Person)",
+      Friend_Phone ~ "Friend (Phone)",
+      Friend_Video ~ "Friend (Video)"
+    ),
+    missing = "no"
+  ) %>%
+  add_overall() %>%
+  modify_caption("**Table 5: Detailed Breakdown of Informal Mental Health Support Use**")
+tbl_informal_details
+```
+
+# Expert Analysis: Informal supports are crucial for mental well-being and often the first line of
+# defense. Understanding which informal channels are most utilized (e.g., family vs. internet groups)
+# can inform community-based support strategies.
+
+
+# 5.3.4. Service Delivery Modalities
+```{r results='asis'}
+cat("\n#### Service Delivery Modalities\n")
+modality_vars <- c("Any_Text_SMS_Service_Use", "Any_Phone_Service_Use",
+                   "Any_Video_Service_Use", "Any_InPerson_Service_Use")
+
+tbl_modalities <- data_clean %>%
+  select(all_of(modality_vars)) %>%
+  tbl_summary(
+    label = list(
+      Any_Text_SMS_Service_Use ~ "Any Text/SMS Service Use",
+      Any_Phone_Service_Use ~ "Any Phone Service Use",
+      Any_Video_Service_Use ~ "Any Video Call Service Use",
+      Any_InPerson_Service_Use ~ "Any In-Person Service Use"
+    ),
+    missing = "no"
+  ) %>%
+  add_overall() %>%
+  modify_caption("**Table 6: Utilization of Mental Health Services by Modality**")
+tbl_modalities
+```
+
+# Expert Analysis: This table is highly relevant in the current landscape. It shows the uptake of different
+# communication methods for accessing mental health support. High rates of phone/video use might suggest
+# convenience or necessity (e.g., due to geographical barriers), while in-person use indicates continued
+# preference or specific service requirements.
+
+
+# 5.4. Suicidal Ideation and Depression
+```{r results='asis'}
+cat("\n### Suicidal Ideation and Depression\n")
+suicide_depression_vars <- c("Suicide_Thought_12m_Flag", "Suicide_Ideation_12m",
+                             "Suicide_Ideation_WorstEpisode", "Suicide_Ideation_Life",
+                             "Depression_Interference_12m", "Depression_Hospitalized_Life",
+                             "Depression_Consulted_Prof_Life")
+
+tbl_suicide_depression <- data_clean %>%
+  select(all_of(suicide_depression_vars)) %>%
+  tbl_summary(
+    label = list(
+      Suicide_Thought_12m_Flag ~ "Any Suicide Thought (Past 12 Months)",
+      Suicide_Ideation_12m ~ "Suicide Ideation (Past 12 Months)",
+      Suicide_Ideation_WorstEpisode ~ "Worst Episode of Suicide Ideation",
+      Suicide_Ideation_Life ~ "Suicide Ideation (Lifetime)",
+      Depression_Interference_12m ~ "Depression Interference (Past 12 Months)", # Assuming this is ordinal/scale, adjust if binary
+      Depression_Hospitalized_Life ~ "Hospitalized for Depression (Lifetime)",
+      Depression_Consulted_Prof_Life ~ "Consulted Prof for Depression (Lifetime)"
+    ),
+    missing = "no"
+  ) %>%
+  add_overall() %>%
+  modify_caption("**Table 7: Prevalence of Suicidal Ideation and Depression-Related Experiences**")
+tbl_suicide_depression
+```
+
+# Expert Analysis: These are critical public health indicators. The prevalence of suicidal ideation
+# across different timeframes and the history of depression highlight the mental health burden in the sample.
+# These variables will serve as key outcomes in our bivariate and multivariate analyses.
+
+
+# --- 6. Bivariate Analysis ---
+# Outcome variables for bivariate analysis:
+# Professional_Service_Any
+# Informal_Support_Any
+# Suicide_Ideation_12m (or Suicide_Thought_12m_Flag for a simpler binary outcome)
+
+```{r}
+# Predictor variables:
+predictors <- c("Pop_Centre_Rural", "Marital_Status", "Gender", "Age_Group",
+                "Immigration_Status", "Years_in_Canada", "Education",
+                "Perceived_Life_Stress", "Perceived_Work_Stress",
+                "Perceived_Health", "Self_Perceived_MH", "Perceived_Help_Family")
+
+
+```
+
+# 6.1. Factors Associated with Professional Service Use
+
+```{r results='asis'}
+cat("\n### Factors Associated with Professional Service Use\n")
+tbl_biv_prof_service <- data_clean %>%
+  select(Professional_Service_Any, all_of(predictors)) %>%
+  tbl_cross(
+    row = Professional_Service_Any,
+    col = all_of(predictors),
+    percent = "column", # Percentage of column total (e.g., % within each age group)
+    missing = "no"
+  ) %>%
+  add_p() %>% # Add p-values from chi-squared test
+  modify_caption("**Table 8: Bivariate Associations with Any Professional Service Use**")
+tbl_biv_prof_service
+```
+
+# Expert Analysis: Look for p-values less than 0.05. These indicate statistically significant associations.
+# For example, if a certain age group has a significantly higher percentage of professional service use,
+# it suggests that age is a relevant factor. Explore the actual percentages to understand the direction
+# and magnitude of the association.
+
+
+# 6.2. Factors Associated with Informal Support Use
+```{r results='asis'}
+cat("\n### Factors Associated with Informal Support Use\n")
+tbl_biv_informal_service <- data_clean %>%
+  select(Informal_Support_Any, all_of(predictors)) %>%
+  tbl_cross(
+    row = Informal_Support_Any,
+    col = all_of(predictors),
+    percent = "column",
+    missing = "no"
+  ) %>%
+  add_p() %>%
+  modify_caption("**Table 9: Bivariate Associations with Any Informal Support Use**")
+tbl_biv_informal_service
+```
+
+# Expert Analysis: Similar to professional services, this table helps identify which demographic or
+# perceived well-being factors are associated with relying on informal support. Differences here compared
+# to professional services can highlight distinct pathways to support.
+
+
+# 6.3. Factors Associated with Suicidal Ideation (Past 12 Months)
+```{r results='asis'}
+cat("\n### Factors Associated with Suicidal Ideation (Past 12 Months)\n")
+# Using Suicide_Thought_12m_Flag as a primary outcome for simplicity in bivariate
+tbl_biv_suicide_ideation <- data_clean %>%
+  select(Suicide_Thought_12m_Flag, all_of(predictors)) %>%
+  tbl_cross(
+    row = Suicide_Thought_12m_Flag,
+    col = all_of(predictors),
+    percent = "column",
+    missing = "no"
+  ) %>%
+  add_p() %>%
+  modify_caption("**Table 10: Bivariate Associations with Suicidal Ideation (Past 12 Months)**")
+tbl_biv_suicide_ideation
+```
+
+# Expert Analysis: This table is critical for identifying potential risk and protective factors for suicidal
+# ideation. Significant associations with factors like age, stress, or perceived health warrant further
+# investigation in multivariate models.
+
+# Bivariate Analysis with Modalities (Example: How demographics influence modality choice)
+```{r results='asis'}
+cat("\n### Factors Associated with Modality Use (Example: Any Video Service Use)\n")
+tbl_biv_video_modality <- data_clean %>%
+  select(Any_Video_Service_Use, all_of(predictors)) %>%
+  tbl_cross(
+    row = Any_Video_Service_Use,
+    col = all_of(predictors),
+    percent = "column",
+    missing = "no"
+  ) %>%
+  add_p() %>%
+  modify_caption("**Table 11: Bivariate Associations with Any Video Service Use**")
+tbl_biv_video_modality
+```
+
+# Expert Analysis: This example shows how you can assess which demographic groups are more likely to use
+# specific service modalities. For instance, if younger age groups show higher video call use, this can
+# inform targeted digital mental health interventions. You can replicate this for Text/SMS, Phone, In-Person.
+
+
+# --- 7. Multivariate Analysis (Logistic Regression) ---
+
+```{r}
+# Set reference levels for categorical variables for interpretable odds ratios
+# (Only needed if you want specific reference levels for regression, gtsummary handles this gracefully)
+# data_clean <- data_clean %>%
+#   mutate(
+#     Gender = relevel(Gender, ref = "Male"),
+#     Marital_Status = relevel(Marital_Status, ref = "Single")
+#     # ... and so on for other categorical predictors
+#   )
+```
+
+
+# 7.1. Predictors of Professional Service Use
+cat("\n### Predictors of Professional Service Use\n")
+# Build a logistic regression model for professional service use
+
+
+
+```{r}
+model_prof_service <- glm(Professional_Service_Any ~ Pop_Centre_Rural + Marital_Status + Gender + Age_Group +
+                            Immigration_Status + Years_in_Canada + Education +
+                            Perceived_Life_Stress + Perceived_Work_Stress +
+                            Perceived_Health + Self_Perceived_MH + Perceived_Help_Family,
+                          data = data_clean,
+                          family = binomial(link = "logit"))
+
+tbl_multi_prof_service <- model_prof_service %>%
+  tbl_regression(
+    exponentiate = TRUE, # Display Odds Ratios
+    conf.int = TRUE,     # Display Confidence Intervals
+    pvalue_fun = ~style_pvalue(.x, digits = 3), # Format p-values
+    label = list(
+      Pop_Centre_Rural ~ "Population Centre / Rural",
+      Marital_Status ~ "Marital Status",
+      Gender ~ "Gender",
+      Age_Group ~ "Age Group",
+      Immigration_Status ~ "Immigration Status",
+      Years_in_Canada ~ "Years in Canada",
+      Education ~ "Highest Education",
+      Perceived_Life_Stress ~ "Perceived Life Stress",
+      Perceived_Work_Stress ~ "Perceived Work Stress",
+      Perceived_Health ~ "Self-Perceived Health",
+      Self_Perceived_MH ~ "Self-Perceived Mental Health",
+      Perceived_Help_Family ~ "Perceived Help from Family"
+    )
+  ) %>%
+  modify_caption("**Table 12: Logistic Regression Predicting Professional Service Use**")
+tbl_multi_prof_service
+```
+
+# Expert Analysis: For each predictor, interpret the Odds Ratio (OR). An OR > 1 suggests an increased
+# likelihood of using professional services for that category/level compared to the reference. An OR < 1
+# suggests a decreased likelihood. For example, if Age_Group "30-49" has an OR of 1.5, it means
+# individuals in this age group are 1.5 times more likely to use professional services compared to the
+# reference age group (e.g., "18-29"), holding other factors constant. Focus on statistically significant
+# predictors (p < 0.05).
+
+
+# 7.2. Predictors of Informal Support Use
+```{r results='asis'}
+cat("\n### Predictors of Informal Support Use\n")
+model_informal_service <- glm(Informal_Support_Any ~ Pop_Centre_Rural + Marital_Status + Gender + Age_Group +
+                                Immigration_Status + Years_in_Canada + Education +
+                                Perceived_Life_Stress + Perceived_Work_Stress +
+                                Perceived_Health + Self_Perceived_MH + Perceived_Help_Family,
+                              data = data_clean,
+                              family = binomial(link = "logit"))
+
+tbl_multi_informal_service <- model_informal_service %>%
+  tbl_regression(
+    exponentiate = TRUE,
+    conf.int = TRUE,
+    pvalue_fun = ~style_pvalue(.x, digits = 3),
+    label = list(
+      Pop_Centre_Rural ~ "Population Centre / Rural",
+      Marital_Status ~ "Marital Status",
+      Gender ~ "Gender",
+      Age_Group ~ "Age Group",
+      Immigration_Status ~ "Immigration Status",
+      Years_in_Canada ~ "Years in Canada",
+      Education ~ "Highest Education",
+      Perceived_Life_Stress ~ "Perceived Life Stress",
+      Perceived_Work_Stress ~ "Perceived Work Stress",
+      Perceived_Health ~ "Self-Perceived Health",
+      Self_Perceived_MH ~ "Self-Perceived Mental Health",
+      Perceived_Help_Family ~ "Perceived Help from Family"
+    )
+  ) %>%
+  modify_caption("**Table 13: Logistic Regression Predicting Informal Support Use**")
+tbl_multi_informal_service
+```
+
+# Expert Analysis: Compare the significant predictors here with those for professional services.
+# It's common to see different factors influencing reliance on formal vs. informal support. For instance,
+# family support might be a stronger predictor for informal use, while specific mental health symptoms
+# might drive professional engagement.
+
+
+# 7.3. Predictors of Suicidal Ideation (Past 12 Months)
+```{r}
+cat("\n### Predictors of Suicidal Ideation (Past 12 Months)\n")
+# Include service use as potential predictors here to see their association with ideation
+model_suicide_ideation <- glm(Suicide_Thought_12m_Flag ~ Pop_Centre_Rural + Marital_Status + Gender + Age_Group +
+                                 Immigration_Status + Years_in_Canada + Education +
+                                 Perceived_Life_Stress + Perceived_Work_Stress +
+                                 Perceived_Health + Self_Perceived_MH + Perceived_Help_Family +
+                                 Professional_Service_Any + Informal_Support_Any,
+                               data = data_clean,
+                               family = binomial(link = "logit"))
+
+tbl_multi_suicide_ideation <- model_suicide_ideation %>%
+  tbl_regression(
+    exponentiate = TRUE,
+    conf.int = TRUE,
+    pvalue_fun = ~style_pvalue(.x, digits = 3),
+    label = list(
+      Pop_Centre_Rural ~ "Population Centre / Rural",
+      Marital_Status ~ "Marital Status",
+      Gender ~ "Gender",
+      Age_Group ~ "Age Group",
+      Immigration_Status ~ "Immigration Status",
+      Years_in_Canada ~ "Years in Canada",
+      Education ~ "Highest Education",
+      Perceived_Life_Stress ~ "Perceived Life Stress",
+      Perceived_Work_Stress ~ "Perceived Work Stress",
+      Perceived_Health ~ "Self-Perceived Health",
+      Self_Perceived_MH ~ "Self-Perceived Mental Health",
+      Perceived_Help_Family ~ "Perceived Help from Family",
+      Professional_Service_Any ~ "Any Professional Service Use",
+      Informal_Support_Any ~ "Any Informal Support Use"
+    )
+  ) %>%
+  modify_caption("**Table 14: Logistic Regression Predicting Suicidal Ideation (Past 12 Months)**")
+tbl_multi_suicide_ideation
+```
+
+# Expert Analysis: This model is crucial for identifying independent predictors of suicidal ideation.
+# Observe if demographic factors, perceived stress/health, or even previous service utilization
+# (Professional_Service_Any, Informal_Support_Any) are significantly associated with suicidal ideation
+# after controlling for other variables. A significant OR for a service use variable might suggest
+# either that those with ideation seek services, or that services, while important, don't fully
+# eliminate ideation in a cross-sectional study. Further longitudinal data would be needed for causal
+# inference.
+
+# You can also run models for specific modality use if desired, e.g.:
+```{r}
+# model_video_use <- glm(Any_Video_Service_Use ~ Pop_Centre_Rural + Marital_Status + Gender + Age_Group + ...,
+#                        data = data_clean, family = binomial(link = "logit"))
+# tbl_multi_video_use <- model_video_use %>% tbl_regression(exponentiate = TRUE) %>% modify_caption("**Table X: Predictors of Video Service Use**")
+# tbl_multi_video_use
+```
+

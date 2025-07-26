@@ -1,0 +1,617 @@
+---
+title: "Mental Health Services Utilization Among Immigrants in Canada"
+author: "ALEXANDER ANYAGRE"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r init_setup, include=FALSE}
+# Initial setup chunk - renamed to avoid duplication
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+
+```{r warning=FALSE,error=FALSE,message=FALSE}
+
+#Load Required Packages
+
+library(tidyverse)
+library(haven)
+library(gtsummary)
+library(gt)
+library(performance)
+library(car)
+library(nnet)
+library(pscl)
+library(lavaan)
+library(patchwork)
+#Data Processing Pipeline
+
+# Load and prepare data
+data <- read_dta("D:/Assaya/Assaya/Data/JULY232025.dta")
+colnames(data) <- tolower(names(data))
+```
+
+
+```{r warning=FALSE,error=FALSE,message=FALSE}
+# Initial data conversion
+data_processed <- data %>%
+  rename(
+    pop_centre_rural = "geodvpsz",
+    marital_status = "dhhgms",
+    gender = "gender",
+    age_group = "dhhgage",
+    immigration_status = "sdcfimm",
+    years_in_canada = "sdcgres",
+    education = "edu_05",
+    perceived_mh_compared_prev_year = "gen_08c",
+    perceived_life_stress = "gen_07",
+    perceived_work_stress = "gen_09",
+    self_perceived_mh = "gen_08b",
+    depression_interference_12m = "depdint",
+    suicide_thought_12m_flag = "depfsyt",
+    depression_hospitalized_life = "dep_87",
+    depression_consulted_prof_life = "dep_72",
+    suicide_ideation_12m = "sui_03",
+    suicide_ideation_worst_episode = "sui_01",
+    suicide_ideation_life = "sui_02",
+    consulted_ment_hlth_12m = "sr1_004j"
+  ) %>%
+  mutate(
+    across(
+      starts_with("sr1_"), 
+      ~factor(
+        case_when(
+          .x == 1 ~ "Yes",
+          .x == 2 ~ "No",
+          TRUE ~ NA_character_
+        ),
+        levels = c("No", "Yes")
+      )
+    )
+  ) %>%
+  mutate(
+    pop_centre_rural = factor(
+      pop_centre_rural,
+      levels = c(1, 2, 3, 4),
+      labels = c("Large urban", "Medium urban", "Small urban", "Rural")
+    ),
+    marital_status = factor(
+      marital_status,
+      levels = c(1, 2, 3, 4, 5),
+      labels = c("Married", "Common-law", "Widowed/Divorced/Separated", "Single", "Other")
+    ),
+    gender = factor(gender, levels = c(1, 2), labels = c("Male", "Female")),
+    age_group = factor(
+      age_group,
+      levels = c(1, 2, 3, 4, 5, 6, 7, 8),
+      labels = c("12-14", "15-17", "18-19", "20-24", "25-29", "30-34", "35-39", "40+")
+    ),
+    immigration_status = factor(
+      immigration_status,
+      levels = c(1, 2),
+      labels = c("Immigrant", "Non-immigrant")
+    ),
+    years_in_canada = factor(
+      years_in_canada,
+      levels = c(1, 2, 3),
+      labels = c("0-5 years", "6-10 years", "11+ years")
+    ),
+    education = factor(
+      education,
+      levels = c(1, 2, 3, 4, 5, 6, 7),
+      labels = c(
+        "Less than high school", "High school", "Trade certificate",
+        "College diploma", "University certificate below bachelor",
+        "Bachelor's degree", "University above bachelor"
+      )
+    )
+  )
+```
+
+#Service Use Flag Creation
+```{r warning=FALSE,error=FALSE,message=FALSE, results='asis'}
+
+service_groups <- list(
+  professional = c("sr1_004a", "sr1_004b", "sr1_004c", "sr1_004d", "sr1_004e"),
+  informal = c("sr1_004f", "sr1_004g", "sr1_004h", "sr1_113", "sr1_116"),
+  text = c("sr1_10ad", "sr1_20ad", "sr1_30ad", "sr1_50ad", "sr1_60ad", "sr1_70ad", "sr1_80ad", "sr1100ad"),
+  phone = c("sr1_10ab", "sr1_20ab", "sr1_30ab", "sr1_40ab", "sr1_50ab", "sr1_60ab", "sr1_70ab", "sr1_80ab", "sr1100ab", "sr1_116"),
+  video = c("sr1_10ac", "sr1_20ac", "sr1_30ac", "sr1_40ac", "sr1_50ac", "sr1_60ac", "sr1_70ac", "sr1_80ac", "sr1100ac"),
+  inperson = c("sr1_10aa", "sr1_20aa", "sr1_30aa", "sr1_40aa", "sr1_50aa", "sr1_60aa", "sr1_70aa", "sr1_80aa", "sr1100aa")
+)
+
+create_service_flag <- function(data, vars) {
+  existing_vars <- vars[vars %in% names(data)]
+  if (length(existing_vars) == 0) return(rep(NA, nrow(data)))
+  flag <- apply(data[, existing_vars], 1, function(x) any(x == "Yes", na.rm = TRUE))
+  factor(ifelse(flag, "Yes", "No"), levels = c("No", "Yes"))
+}
+
+data_processed <- data_processed %>%
+  mutate(
+    professional_service_any = create_service_flag(., service_groups$professional),
+    informal_support_any = create_service_flag(., service_groups$informal),
+    any_text_sms_service_use = create_service_flag(., service_groups$text),
+    any_phone_service_use = create_service_flag(., service_groups$phone),
+    any_video_service_use = create_service_flag(., service_groups$video),
+    any_inperson_service_use = create_service_flag(., service_groups$inperson)
+  )
+```
+
+#Analysis Functions
+```{r results='asis'}
+
+# Enhanced Service Utilization by Demographics
+# Enhanced Service Utilization by Demographics - FIXED VERSION
+demo_service_analysis <- function(data) {
+  data <- data %>%
+    mutate(service_type = case_when(
+      professional_service_any == "Yes" & informal_support_any == "Yes" ~ "Both",
+      professional_service_any == "Yes" ~ "Professional Only",
+      informal_support_any == "Yes" ~ "Informal Only",
+      TRUE ~ "None"
+    ) %>% factor(levels = c("None", "Professional Only", "Informal Only", "Both")))
+  
+  create_demo_table <- function(var) {
+    # First create summary table by service type
+    tbl_by_service <- data %>%
+      filter(immigration_status == "Immigrant") %>%
+      mutate({{var}} := fct_drop({{var}})) %>%
+      tbl_summary(
+        by = service_type,
+        include = {{var}},
+        missing = "no"
+      ) %>%
+      add_p() %>%
+      modify_header(update = list(label ~ "**Variable**"))
+    
+    # Then create overall summary
+    tbl_overall <- data %>%
+      filter(immigration_status == "Immigrant") %>%
+      mutate({{var}} := fct_drop({{var}})) %>%
+      tbl_summary(
+        include = {{var}},
+        missing = "no"
+      )
+    
+    # Combine tables with proper caption formatting
+    tbl_merge(list(tbl_overall, tbl_by_service)) %>%
+      modify_caption(paste("**Service Utilization Patterns by", as_label(enquo(var)), "**")) %>%
+      modify_footnote(update = everything() ~ NA)
+  }
+  
+  list(
+    gender = create_demo_table(gender),
+    age = create_demo_table(age_group),
+    years_canada = create_demo_table(years_in_canada),
+    education = create_demo_table(education)
+  )
+}
+# Professional-specific Barrier Analysis
+barrier_analysis <- function(data) {
+  barrier_data <- data %>%
+    filter(immigration_status == "Immigrant") %>%
+    mutate(
+      across(c(starts_with("sr1_0")), ~ifelse(.x == "Yes", 1, 0)),
+      any_professional = ifelse(professional_service_any == "Yes", 1, 0)
+    )
+  
+  prof_types <- c("Psychiatrist" = "004a", "Family Doctor" = "004b",
+                 "Psychologist" = "004c", "Nurse" = "004d", "Social Worker" = "004e")
+  
+  map(prof_types, ~{
+    service_var <- paste0("sr1_", .x)
+    barrier_vars <- names(data)[str_detect(names(data), paste0("sr1_", substr(.x, 1, 2), "\\d[a-z]$"))]
+    
+    frm <- reformulate(barrier_vars, response = service_var)
+    glm(frm, data = barrier_data, family = binomial) %>%
+      tbl_regression(exponentiate = TRUE) %>%
+      modify_header(label ~ "**Barrier**") %>%
+      modify_caption(paste("**Barriers Predicting", names(prof_types)[prof_types == .x], "Service Use**"))
+  })
+}
+
+```
+
+# Longitudinal Mental Health Analysis
+```{r warning=FALSE,error=FALSE,message=FALSE}
+mh_trajectory_analysis <- function(data) {
+  # Safely convert variables and handle missing data
+  data <- data %>%
+    mutate(
+      perceived_mh_compared_prev_year = labelled::to_factor(perceived_mh_compared_prev_year),
+      mh_trajectory = case_when(
+        is.na(perceived_mh_compared_prev_year) ~ NA_character_,
+        perceived_mh_compared_prev_year %in% c("Much better", "Somewhat better") ~ "Improved",
+        perceived_mh_compared_prev_year == "About the same" ~ "Stable",
+        perceived_mh_compared_prev_year %in% c("Somewhat worse", "Much worse") ~ "Declined",
+        TRUE ~ NA_character_
+      ) %>% 
+        factor(levels = c("Declined", "Stable", "Improved"))
+    )
+  
+  # Prepare modeling data with complete cases only
+  model_data <- data %>%
+    select(mh_trajectory, professional_service_any, informal_support_any,
+           gender, age_group, years_in_canada) %>%
+    mutate(across(where(is.factor), fct_drop)) %>%
+    drop_na()
+  
+  # Check for sufficient variation in predictors
+  valid_predictors <- c("professional_service_any", "informal_support_any",
+                       "gender", "age_group", "years_in_canada") %>%
+    keep(~length(unique(model_data[[.x]])) > 1)
+  
+  # Build results list
+  results <- list(
+    desc_table = model_data %>%
+      tbl_summary(
+        include = c(mh_trajectory, professional_service_any, informal_support_any),
+        missing = "no"
+      ),
+    model = NULL,
+    predictor_levels = map(valid_predictors, ~levels(model_data[[.x]]))
+  )
+  
+  # Only fit model if we have valid predictors
+  if (length(valid_predictors) > 0) {
+    formula <- reformulate(valid_predictors, "as.numeric(mh_trajectory)")
+    results$model <- tryCatch(
+      {
+        glm(formula, data = model_data, family = poisson)
+      },
+      error = function(e) {
+        message("Model fitting failed: ", e$message)
+        return(NULL)
+      }
+    )
+  }
+  
+  return(results)
+}
+# Suicide Risk Analysis
+suicide_risk_analysis <- function(data) {
+  data <- data %>%
+    mutate(
+      suicide_risk = case_when(
+        suicide_ideation_12m == "Yes" ~ "High (12-month)",
+        suicide_ideation_life == "Yes" ~ "Moderate (Lifetime)",
+        TRUE ~ "None"
+      ),
+      suicide_risk = factor(suicide_risk, levels = c("None", "Moderate (Lifetime)", "High (12-month)"))
+    )
+  
+  list(
+    prevalence = data %>% 
+      filter(immigration_status == "Immigrant") %>%
+      tbl_summary(include = suicide_risk),
+    model = MASS::polr(
+      suicide_risk ~ professional_service_any + informal_support_any +
+        family_support + barrier_stigma + years_in_canada,
+      data = filter(data, immigration_status == "Immigrant"),
+      Hess = TRUE)
+  )
+}
+
+```
+
+# Family Support Analysis
+```{r results='asis'}
+family_support_analysis <- function(data) {
+  data <- data %>%
+    mutate(
+      family_support_strength = case_when(
+        sr1_062 == "Very helpful" ~ "Strong",
+        sr1_062 %in% c("Somewhat helpful", "Neither helpful nor unhelpful") ~ "Moderate",
+        sr1_062 %in% c("Somewhat unhelpful", "Very unhelpful") ~ "Negative",
+        sr1_60aa == "Yes" ~ "Present (unknown helpfulness)",
+        TRUE ~ "None"
+      )
+    )
+  
+  list(
+    desc = data %>%
+      tbl_summary(include = c(family_support_strength, suicide_ideation_12m)),
+    model = glm(
+      suicide_ideation_12m ~ professional_service_any * family_support_strength +
+        gender + age_group,
+      data = data, family = binomial)
+  )
+}
+```
+
+#Descriptive Analysis
+
+```{r results='asis'}
+# Demographic characteristics
+tbl_demographics <- data_processed %>%
+  select(pop_centre_rural, marital_status, gender, age_group,
+         immigration_status, years_in_canada, education) %>%
+  tbl_summary(
+    missing = "no",
+    label = list(
+      pop_centre_rural ~ "Population Centre",
+      marital_status ~ "Marital Status",
+      gender ~ "Gender"
+    )
+  ) %>%
+  modify_caption("**Table 1: Demographic Characteristics**")
+
+tbl_demographics
+```
+
+# Service Utilization Patterns
+
+## Professional vs. Informal
+```{r results='asis'}
+tbl_service_compare <- data_processed %>%
+  select(professional_service_any, informal_support_any) %>%
+  tbl_summary(
+    label = list(
+      professional_service_any ~ "Professional Services",
+      informal_support_any ~ "Informal Support"
+    ),
+    missing = "no"
+  ) %>%
+  modify_caption("**Table 2: Professional vs. Informal Service Utilization**")
+
+# Detailed professional services
+tbl_prof_detail <- data_processed %>%
+  select(sr1_004a, sr1_004b, sr1_004c, sr1_004d, sr1_004e) %>%
+  tbl_summary(
+    label = list(
+      sr1_004a ~ "Psychiatrist",
+      sr1_004b ~ "Family Doctor",
+      sr1_004c ~ "Psychologist",
+      sr1_004d ~ "Nurse",
+      sr1_004e ~ "Social Worker"
+    ),
+    missing = "no"
+  ) %>%
+  modify_caption("**Table 3: Detailed Professional Service Utilization**")
+
+tbl_service_compare
+tbl_prof_detail
+```
+
+
+# NEW: Enhanced Service Utilization by Demographics
+```{r results='asis'}
+demo_results <- demo_service_analysis(data_processed)
+demo_results$gender
+demo_results$age
+demo_results$years_canada
+demo_results$education
+
+```
+
+# Barriers Analysis
+# Comprehensive barriers
+```{r results='asis'}
+data_processed <- data_processed %>%
+  mutate(
+    barrier_cost = factor(case_when(
+      sr1_014e == "Yes" | sr1_024e == "Yes" | sr1_034e == "Yes" | sr1_044e == "Yes" | sr1_054e == "Yes" ~ "Yes",
+      TRUE ~ "No"
+    ), levels = c("No", "Yes")),
+    barrier_stigma = factor(case_when(
+      sr1_014j == "Yes" | sr1_024f == "Yes" | sr1_034f == "Yes" | sr1_044f == "Yes" | sr1_054f == "Yes" ~ "Yes",
+      TRUE ~ "No"
+    ), levels = c("No", "Yes")),
+    barrier_access = factor(case_when(
+      sr1_014h == "Yes" | sr1_024h == "Yes" | sr1_034h == "Yes" | sr1_044h == "Yes" | sr1_054h == "Yes" ~ "Yes",
+      TRUE ~ "No"
+    ), levels = c("No", "Yes"))
+  )
+
+tbl_barriers <- data_processed %>%
+  select(starts_with("barrier_")) %>%
+  tbl_summary(
+    label = list(
+      barrier_cost ~ "Financial Barriers",
+      barrier_stigma ~ "Stigma Barriers",
+      barrier_access ~ "Accessibility Barriers"
+    ),
+    missing = "no"
+  ) %>%
+  modify_caption("**Table 4: Prevalence of Service Access Barriers**")
+
+tbl_barriers_immigration <- data_processed %>%
+  select(starts_with("barrier_"), immigration_status, years_in_canada) %>%
+  tbl_summary(by = immigration_status, missing = "no") %>%
+  add_p() %>%
+  modify_caption("**Table 5: Barriers by Immigration Status**")
+
+tbl_barriers
+tbl_barriers_immigration
+
+# NEW: Professional-specific Barrier Analysis
+barrier_results <- barrier_analysis(data_processed)
+barrier_results$Psychiatrist
+barrier_results$`Family Doctor`
+barrier_results$Psychologist
+
+```
+
+#Suicide Ideation Analysis
+
+# Prevalence
+```{r results='asis'}
+data_processed <- data_processed %>%
+  mutate(
+    suicide_ideation_life = labelled::to_factor(suicide_ideation_life),
+    suicide_ideation_12m = labelled::to_factor(suicide_ideation_12m)
+  )
+
+tbl_suicide <- data_processed %>%
+  select(suicide_ideation_life, suicide_ideation_12m) %>%
+  tbl_summary(
+    label = list(
+      suicide_ideation_life ~ "Lifetime Suicidal Ideation",
+      suicide_ideation_12m ~ "Past 12-Month Suicidal Ideation"
+    ),
+    missing = "no"
+  ) %>%
+  modify_caption("**Table 6: Prevalence of Suicidal Ideation**")
+
+tbl_suicide_service <- data_processed %>%
+  select(suicide_ideation_life, professional_service_any, informal_support_any) %>%
+  tbl_summary(by = suicide_ideation_life, missing = "no") %>%
+  add_p() %>%
+  modify_caption("**Table 7: Service Use by Suicidal Ideation Status**")
+
+tbl_suicide
+tbl_suicide_service
+
+```
+
+# NEW: Longitudinal Mental Health Analysis
+
+```{r results='asis'}
+mh_results <- mh_trajectory_analysis(data_processed)
+mh_results$desc_table
+tbl_regression(mh_results$model, exponentiate = TRUE)
+```
+
+
+
+# NEW: Suicide Risk Stratification
+```{r results='asis'}
+risk_results <- suicide_risk_analysis(data_processed)
+risk_results$prevalence
+tbl_regression(risk_results$model)
+```
+
+#Family Support Analysis
+```{r results='asis'}
+
+data_processed <- data_processed %>%
+  mutate(
+    family_support = case_when(
+      sr1_60aa == "Yes" | sr1_60ab == "Yes" | sr1_60ac == "Yes" | sr1_60ad == "Yes" ~ "Yes",
+      TRUE ~ "No"
+    ),
+    family_support = factor(family_support, levels = c("No", "Yes"))
+  )
+
+tbl_family_support <- data_processed %>%
+  select(family_support, suicide_ideation_life) %>%
+  tbl_summary(by = suicide_ideation_life, missing = "no") %>%
+  add_p() %>%
+  modify_caption("**Table 8: Family Support by Suicidal Ideation Status**")
+
+tbl_family_help <- data_processed %>%
+  filter(family_support == "Yes") %>%
+  select(sr1_062) %>%
+  tbl_summary(
+    label = list(sr1_062 ~ "Perceived Helpfulness of Family Support"),
+    missing = "no"
+  ) %>%
+  modify_caption("**Table 9: Perceived Helpfulness of Family Support**")
+
+tbl_family_support
+tbl_family_help
+```
+
+
+# NEW: Comprehensive Family Support Analysis
+
+```{r results='asis'}
+family_results <- family_support_analysis(data_processed)
+family_results$desc
+tbl_regression(family_results$model, exponentiate = TRUE)
+```
+
+#Advanced Modeling
+
+# Immigrant-specific model
+```{r results='asis'}
+immigrant_data <- data_processed %>%
+  filter(immigration_status == "Immigrant") %>%
+  select(
+    suicide_ideation_life,
+    gender,
+    age_group,
+    years_in_canada,
+    professional_service_any,
+    informal_support_any,
+    barrier_cost,
+    barrier_stigma,
+    family_support
+  ) %>%
+  mutate(across(where(is.factor), droplevels)) %>%
+  drop_na()
+
+immigrant_model <- glm(
+  suicide_ideation_life ~ gender + age_group + years_in_canada +
+    professional_service_any + informal_support_any +
+    barrier_cost + barrier_stigma + family_support,
+  data = immigrant_data,
+  family = binomial
+)
+
+model_results <- cbind(
+  OR = exp(coef(immigrant_model)),
+  exp(confint(immigrant_model))
+) %>% 
+  as.data.frame() %>%
+  rownames_to_column("Variable") %>%
+  mutate(across(where(is.numeric), ~round(.x, 2)))
+
+model_results %>%
+  gt() %>%
+  fmt_number(columns = 2:4, decimals = 2) %>%
+  cols_label(
+    OR = "Odds Ratio",
+    `2.5 %` = "Lower CI", 
+    `97.5 %` = "Upper CI"
+  ) %>%
+  tab_header(
+    title = "Predictors of Suicidal Ideation in Immigrants",
+    subtitle = "Adjusted Logistic Regression Results"
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_body(
+      columns = OR,
+      rows = `2.5 %` > 1 | `97.5 %` < 1
+    )
+  )
+
+```
+
+
+```{r results='asis'}
+
+# Model diagnostics
+if(require(performance)) {
+  check_model(immigrant_model)
+  model_performance(immigrant_model) %>% print()
+}
+```
+
+#Visualizations
+
+```{r results='asis'}
+# Service modality by age and immigration
+ggplot(data_processed, aes(x = age_group, fill = any_video_service_use)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~immigration_status) +
+  labs(title = "Video Service Use by Age and Immigration Status",
+       x = "Age Group", y = "Proportion Using Video Services") +
+  scale_fill_brewer(palette = "Set1", name = "Used Video\nServices") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Mental health trajectory by family support
+ggplot(data_processed %>% filter(!is.na(perceived_mh_compared_prev_year)), 
+       aes(x = perceived_mh_compared_prev_year, fill = family_support)) +
+  geom_bar(position = "fill") +
+  labs(title = "Mental Health Trajectory by Family Support",
+       x = "Perceived Change in Mental Health", y = "Proportion") +
+  scale_fill_brewer(palette = "Set2", name = "Family Support") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
